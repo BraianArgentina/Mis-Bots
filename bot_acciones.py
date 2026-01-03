@@ -4,20 +4,18 @@ import yfinance as yf
 import requests
 from datetime import datetime
 import pytz
-import config_acciones as config # <--- IMPORTA TUS LISTAS Y CLAVES
+import config_acciones as config 
 
 # ==========================================
 # ⚙️ AJUSTES DE TIEMPO
 # ==========================================
-# Respawn (Silencio) de alerta: 3 HORAS (10800 seg)
-# Razón: Mercado de 6hs. Permite una alerta a la mañana y otra a la tarde.
-COOLDOWN_SECONDS = 10800 
-
-# Descanso entre vueltas: 3 MINUTOS (180 seg)
-SLEEP_TIME = 180
+# Cooldown: Tiempo que el bot ignora un activo tras avisar (3 Horas)
+COOLDOWN_SECONDS = 10800  
+# Sleep Loop: Descanso al terminar de revisar toda la lista (3 Minutos)
+SLEEP_TIME = 180          
 
 # ==========================================
-# 🧠 LÓGICA MATEMÁTICA
+# 🧠 FUNCIONES AUXILIARES
 # ==========================================
 
 def send_telegram(msg):
@@ -49,7 +47,7 @@ def bcwsma(series, length, weight):
     return pd.Series(result, index=series.index)
 
 def calculate_kdj(df):
-    # KDJ Estándar (9,3,3)
+    # Fórmula KDJ Estándar (9,3,3)
     low = df['Low'].rolling(9).min()
     high = df['High'].rolling(9).max()
     rsv = 100 * ((df['Close'] - low) / (high - low))
@@ -60,6 +58,44 @@ def calculate_kdj(df):
     return k, d, j
 
 # ==========================================
+# 🏥 HEALTH CHECK (Validación de Tickers)
+# ==========================================
+def validar_lista_activos(watchlist_full):
+    print("🏥 Iniciando chequeo de salud de tickers... (Esto toma unos segundos)")
+    bad_tickers = []
+    
+    # Probamos descargar 1 día de datos para ver si existe
+    for symbol in watchlist_full.keys():
+        try:
+            tik = yf.Ticker(symbol)
+            # Pedimos 1 día para verificar existencia sin gastar recursos
+            df = tik.history(period="1d")
+            
+            if df.empty:
+                bad_tickers.append(symbol)
+                print(f"❌ Error: {symbol} no devuelve datos.")
+            else:
+                print(f"✅ OK: {symbol}", end="\r") 
+                
+        except Exception:
+            bad_tickers.append(symbol)
+            print(f"❌ Error Crítico: {symbol}")
+        
+        time.sleep(0.1) # Pequeña pausa técnica
+        
+    print(f"\n✅ Chequeo finalizado.")
+    
+    if bad_tickers:
+        msg = "⚠️ REPORT DE ERRORES ⚠️\nLos siguientes tickers NO funcionan en Yahoo Finance y serán ignorados:\n\n"
+        msg += ", ".join(bad_tickers)
+        msg += "\n\nPor favor revisa config_acciones.py cuando puedas."
+        send_telegram(msg)
+        return bad_tickers
+    else:
+        print("🎉 Todos los tickers están operativos.")
+        return []
+
+# ==========================================
 # 🚀 MOTOR PRINCIPAL
 # ==========================================
 
@@ -67,12 +103,27 @@ def run_acciones_bot():
     print("👔 Bot Acciones (Modo Francotirador) Iniciado...")
     print(f"⏱️ Config: Cooldown {COOLDOWN_SECONDS/3600}hs | Loop {SLEEP_TIME/60}min")
     
-    send_telegram("👔 Bot Acciones ONLINE.\nEsperando apertura (11-17hs).")
+    # 1. Unificar Listas desde Config
+    # (Al estar fuera del loop, obliga a reiniciar el bot para aplicar cambios)
+    full_watchlist = config.WATCHLIST_DICT.copy()
+    for t in config.PORTFOLIO:
+        if t not in full_watchlist:
+            full_watchlist[t] = t
+            
+    # 2. Ejecutar Health Check (Reporta errores al Telegram)
+    bad_tickers = validar_lista_activos(full_watchlist)
+    
+    # Eliminamos los malos de la lista local
+    for bad in bad_tickers:
+        if bad in full_watchlist:
+            del full_watchlist[bad]
+            
+    send_telegram(f"👔 Bot Acciones ONLINE.\nVigilando {len(full_watchlist)} activos válidos.\nEsperando apertura (11-17hs).")
     
     last_alerts = {} 
 
     while True:
-        # 1. Chequeo de Horario
+        # 3. Chequeo de Horario
         if not mercado_abierto():
             print(f"💤 Mercado Cerrado ({datetime.now().strftime('%H:%M')}). Durmiendo 30 min...")
             time.sleep(1800) 
@@ -80,43 +131,31 @@ def run_acciones_bot():
 
         print("⚡ Escaneando mercado (Yahoo Finance)...")
 
-        # Recarga config por si hiciste cambios en github/termius
-        import importlib
-        importlib.reload(config) 
-        
-        # Unificamos listas
-        full_watchlist = config.WATCHLIST_DICT.copy()
-        for t in config.PORTFOLIO:
-            if t not in full_watchlist:
-                full_watchlist[t] = t
-
         for symbol, name in full_watchlist.items():
             try:
-                # 2. Cooldown (3 Horas)
+                # 4. Cooldown Global
                 if symbol in last_alerts:
                     if time.time() - last_alerts[symbol] < COOLDOWN_SECONDS:
                         continue
 
-                # 3. Descarga de datos
-                # NOTA: Yahoo Finance puede bloquear si vamos muy rápido.
+                # 5. Descarga de datos
                 ticker_obj = yf.Ticker(symbol)
                 df = ticker_obj.history(period="1mo", interval="1h")
                 
-                # --- PAUSA DE CORTESÍA ---
-                # Dormimos 1 segundo entre acciones para no saturar a Yahoo
-                time.sleep(1) 
+                # Pausa de cortesía para Yahoo (1.5 seg)
+                time.sleep(1.5) 
 
                 if df.empty or len(df) < 20: continue
 
-                # 4. Cálculos
+                # 6. Cálculos Matemáticos
                 k, d, j = calculate_kdj(df)
                 j_curr = j.iloc[-1]
                 d_curr = d.iloc[-1]
                 precio = df['Close'].iloc[-1]
                 
-                # 5. Lógica Francotirador (J<=0 y D<=25)
+                # 7. Lógica de Decisión (Francotirador)
                 
-                # --- A y B: COMPRA (Suelo) ---
+                # --- ESCENARIO A y B: COMPRA (Suelo) ---
                 if j_curr <= 0 and d_curr <= 25:
                     
                     if symbol in config.PORTFOLIO:
@@ -129,7 +168,7 @@ def run_acciones_bot():
                     else:
                         # ESCENARIO A: NUEVA ENTRADA
                         msg = (f"💎 NUEVA ENTRADA: {name} ({symbol})\n"
-                               f"Precio Entrada: USD {precio:.2f})\n"
+                               f"Precio Entrada: USD {precio:.2f}\n"
                                f"----------------\n"
                                f"J: {j_curr:.2f} | D: {d_curr:.2f}")
                         print(f"✅ Entrada: {symbol}")
@@ -137,7 +176,7 @@ def run_acciones_bot():
                     send_telegram(msg)
                     last_alerts[symbol] = time.time()
 
-                # --- C: VENTA (Techo) ---
+                # --- ESCENARIO C: VENTA (Techo) ---
                 elif j_curr >= 100 and d_curr >= 75:
                     
                     if symbol in config.PORTFOLIO:
@@ -150,7 +189,7 @@ def run_acciones_bot():
                         last_alerts[symbol] = time.time()
                     
             except Exception as e:
-                # print(f"Error leve en {symbol}: {e}")
+                # Si falla algo leve, seguimos
                 continue
         
         print(f"⏳ Ciclo terminado. Esperando {SLEEP_TIME/60} minutos...")
