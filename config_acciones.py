@@ -34,8 +34,8 @@ WATCHLIST_DICT = {
     'TTD': 'The Trade Desk', 'DOCU': 'DocuSign',
 
     # --- 2. MEME STOCKS & CRYPTO MINERS ---
-    'GME': 'GameStop', 'AMC': 'AMC', 'RIOT': 'Riot Blockchain',
-    'MARA': 'Marathon Digital', 'HUT': 'Hut 8 Mining', 'CLSK': 'CleanSpark',
+    'RIOT': 'Riot Blockchain', 'MARA': 'Marathon Digital', 
+    'HUT': 'Hut 8 Mining', 'CLSK': 'CleanSpark',
     
     # --- 3. ARGENTINA (ADRS & LOCALES) ---
     'GGAL': 'Galicia', 'PAMP': 'Pampa Energía', 'YPF': 'YPF', 
