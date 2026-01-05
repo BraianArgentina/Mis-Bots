@@ -14,8 +14,8 @@ TELEGRAM_CHAT_ID = "PONER_TU_CHAT_ID_AQUI"
 # - Si sube: Avisa VENTA (Tomar Ganancia).
 # Cuando compres algo nuevo, agrégalo a esta lista.
 PORTFOLIO = [
-    'MELI', 'GLOB', 'META', 'NFLX', 'MSTR', 'COIN', 
-    'QCOM', 'HMY', 'JD', 'NIO', 'BB', 'STNE', 'TRIP'
+    'MELI', 'GLOB', 'META', 'NFLX', 'MSTR', 
+    'JD', 'NIO', 'STNE', 'TRIP'
 ]
 
 # ==========================================
@@ -31,12 +31,12 @@ WATCHLIST_DICT = {
     'GOOGL': 'Google', 'SQ': 'Block', 'PYPL': 'PayPal', 'U': 'Unity',
     'DKNG': 'DraftKings', 'AFRM': 'Affirm', 'PATH': 'UiPath',
     'DDOG': 'Datadog', 'NET': 'Cloudflare', 'CRWD': 'CrowdStrike',
-    'TTD': 'The Trade Desk', 'DOCU': 'DocuSign',
+    'TTD': 'The Trade Desk', 'DOCU': 'DocuSign', 'QCOM',
 
     # --- 2. MEME STOCKS & CRYPTO MINERS ---
     'RIOT': 'Riot Blockchain', 'MARA': 'Marathon Digital', 
-    'HUT': 'Hut 8 Mining', 'CLSK': 'CleanSpark',
-    
+    'HUT': 'Hut 8 Mining', 'CLSK': 'CleanSpark','COIN', 'BB',
+        
     # --- 3. ARGENTINA (ADRS & LOCALES) ---
     'GGAL': 'Galicia', 'PAMP': 'Pampa Energía', 'YPF': 'YPF', 
     'BMA': 'Banco Macro', 'SUPV': 'Supervielle', 'EDN': 'Edenor', 
@@ -49,7 +49,15 @@ WATCHLIST_DICT = {
     'ITUB': 'Itau Unibanco', 'BBD': 'Bradesco', 'ERJ': 'Embraer',
     'BABA': 'Alibaba', 'PDD': 'Pinduoduo', 'BIDU': 'Baidu', 
     'XPEV': 'XPeng', 'LI': 'Li Auto', 'JMIA': 'Jumia (Africa)',
-    'CX': 'Cemex (México)',
+    'CX': 'Cemex (México)', 'HMY',
+
+
+# ==========================================
+# 🛑 INTERRUPTOR DE ESTRATEGIA (MODO AHORRO)
+# ==========================================
+# True (Verdadero) = Busca NUEVAS oportunidades en los 70 tickers (Escenario A).
+# False (Falso)    = SOLO revisa tu Portfolio para VENTA o RECOMPRA (Escenarios B y C).
+BUSCAR_NUEVAS_ENTRADAS = False
 
     # --- 5. COMMODITIES & ENERGÍA VOLÁTIL ---
     'VIST': 'Vista Energy', 'X': 'US Steel', 
