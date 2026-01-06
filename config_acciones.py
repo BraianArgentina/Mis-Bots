@@ -3,8 +3,8 @@
 # ==========================================
 # Cuando crees el bot nuevo en BotFather, pega aquí los datos.
 # Mantén las comillas ""
-TELEGRAM_TOKEN = "PONER_TU_TOKEN_AQUI"
-TELEGRAM_CHAT_ID = "PONER_TU_CHAT_ID_AQUI"
+TELEGRAM_TOKEN = "8526765460:AAEfCtglMngERcBr73-T2bDWy8JCwBhhvFE"
+TELEGRAM_CHAT_ID = "-1003461057886"
 
 # ==========================================
 # 💼 MI PORTFOLIO (LO QUE YA TENGO EN COCOS)
@@ -51,6 +51,12 @@ WATCHLIST_DICT = {
     'XPEV': 'XPeng', 'LI': 'Li Auto', 'JMIA': 'Jumia (Africa)',
     'CX': 'Cemex (México)', 'HMY',
 
+    # --- 5. COMMODITIES & ENERGÍA VOLÁTIL ---
+    'VIST': 'Vista Energy', 'X': 'US Steel', 
+    'HAL': 'Halliburton', 'OXY': 'Occidental Petroleum', 
+    'FCX': 'Freeport-McMoRan', 'AA': 'Alcoa'
+}
+
 
 # ==========================================
 # 🛑 INTERRUPTOR DE ESTRATEGIA (MODO AHORRO)
@@ -58,9 +64,3 @@ WATCHLIST_DICT = {
 # True (Verdadero) = Busca NUEVAS oportunidades en los 70 tickers (Escenario A).
 # False (Falso)    = SOLO revisa tu Portfolio para VENTA o RECOMPRA (Escenarios B y C).
 BUSCAR_NUEVAS_ENTRADAS = False
-
-    # --- 5. COMMODITIES & ENERGÍA VOLÁTIL ---
-    'VIST': 'Vista Energy', 'X': 'US Steel', 
-    'HAL': 'Halliburton', 'OXY': 'Occidental Petroleum', 
-    'FCX': 'Freeport-McMoRan', 'AA': 'Alcoa'
-}
