@@ -11,7 +11,10 @@ import config_acciones as config
 # ⚙️ CONFIGURACIÓN GENERAL
 # ==========================================
 TIMEZONE = pytz.timezone('America/Argentina/Cordoba')
-COOLDOWN_SECONDS = 10800  # 3 Horas entre alertas del mismo activo para no ser pesado
+
+# COOLDOWN: 10800 segundos = 3 HORAS
+# El bot no repetirá la alerta del MISMO activo en menos de este tiempo.
+COOLDOWN_SECONDS = 10800  
 
 # ==========================================
 # 🧠 FUNCIONES AUXILIARES
@@ -28,12 +31,12 @@ def send_telegram(msg):
 def mercado_abierto():
     """Devuelve True si es Lunes-Viernes entre 11:00 y 17:00 (Hora Arg)"""
     now = datetime.now(TIMEZONE)
-    if now.weekday() > 4: return False # Fines de semana OFF
+    if now.weekday() > 4: return False # Sábado (5) y Domingo (6) OFF
     if 11 <= now.hour < 17: return True
     return False
 
 def bcwsma(series, length, weight):
-    # Media móvil suavizada para el KDJ
+    # Media móvil suavizada para el cálculo preciso del KDJ
     result = []
     for i in range(len(series)):
         if i == 0: result.append(series[i])
@@ -55,97 +58,130 @@ def calculate_kdj(df):
     except:
         return None, None, None
 
+def get_last_kdj(df):
+    """Calcula KDJ completo y devuelve solo los últimos valores J y D"""
+    if df.empty or len(df) < 20: return None, None
+    k, d, j = calculate_kdj(df)
+    if k is None: return None, None
+    return j.iloc[-1], d.iloc[-1]
+
 # ==========================================
-# 🎯 TAREA PRINCIPAL: ESCÁNER SNIPER (KDJ)
+# 🎯 TAREA PRINCIPAL: ESCÁNER TRIPLE CONFLUENCIA
 # ==========================================
 last_alerts = {} 
 
 def job_escanear_oportunidades():
+    # 1. Chequeo de horario
     if not mercado_abierto():
-        # Si está cerrado, no hacemos nada ni imprimimos nada para no llenar el log
         return
 
-    print(f"⚡ Escaneando mercado... ({datetime.now(TIMEZONE).strftime('%H:%M')})")
+    print(f"⚡ Escaneando Triple Confluencia (1H + 4H + 1D)... ({datetime.now(TIMEZONE).strftime('%H:%M')})")
     
-    # 1. Preparar lista
+    # 2. Preparar lista de activos (Portfolio + Watchlist)
     full_watchlist = {}
-    
-    # Siempre vigilamos el Portfolio
     port_items = config.PORTFOLIO.items() if isinstance(config.PORTFOLIO, dict) else [(t, t) for t in config.PORTFOLIO]
     for t, n in port_items: full_watchlist[t] = n
-
-    # Si el modo "Buscar Nuevas" está activo, agregamos el resto
+    
     if config.BUSCAR_NUEVAS_ENTRADAS:
         for t, n in config.WATCHLIST_DICT.items():
             if t not in full_watchlist: full_watchlist[t] = n
 
-    # 2. Analizar cada activo
+    # 3. Analizar cada activo
     for symbol, name in full_watchlist.items():
         try:
-            # Control de Cooldown
+            # --- FILTRO 1: COOLDOWN ---
+            # Si ya avisamos de este activo hace menos de 3 horas, pasamos al siguiente
             if symbol in last_alerts:
                 if time.time() - last_alerts[symbol] < COOLDOWN_SECONDS:
                     continue
 
             ticker_obj = yf.Ticker(symbol)
-            # Bajamos datos de 1 mes, velas de 1 hora
-            df = ticker_obj.history(period="1mo", interval="1h")
             
-            if df.empty or len(df) < 20: continue
+            # --- OBTENER DATOS (Los 3 timeframes) ---
+            
+            # A) Datos Intradía (1H)
+            df_1h = ticker_obj.history(period="1mo", interval="1h")
+            if df_1h.empty: continue
+            
+            # B) Construir 4H desde 1H (Resampling matemático)
+            agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
+            try:
+                df_4h = df_1h.resample('4h').agg(agg_dict).dropna()
+            except:
+                continue
 
-            k, d, j = calculate_kdj(df)
-            if k is None: continue
+            # C) Datos Diario (1D)
+            df_1d = ticker_obj.history(period="6mo", interval="1d")
+            if df_1d.empty: continue
 
-            j_curr = j.iloc[-1]
-            d_curr = d.iloc[-1]
-            precio = df['Close'].iloc[-1]
+            # --- CÁLCULO DE INDICADORES ---
+            j1, d1 = get_last_kdj(df_1h)
+            j4, d4 = get_last_kdj(df_4h)
+            jd, dd = get_last_kdj(df_1d)
 
-            # --- SEÑALES ---
+            # Si falla algún cálculo, abortamos este activo
+            if j1 is None or j4 is None or jd is None: continue
+
+            precio = df_1h['Close'].iloc[-1]
+
+            # --- LÓGICA DE TRIPLE COINCIDENCIA (AND) ---
             msg = ""
             tipo = ""
 
-            # COMPRA (Suelo: J<0 y D<25)
-            if j_curr <= 0 and d_curr <= 25:
+            # CONDICIÓN DE COMPRA: Suelo en 1H Y Suelo en 4H Y Suelo en 1D
+            if (j1 <= 0 and d1 <= 25) and \
+               (j4 <= 0 and d4 <= 25) and \
+               (jd <= 0 and dd <= 25):
+                
                 if symbol in config.PORTFOLIO:
-                    tipo = "RECOMPRA 📉"
-                    msg = f"Recomendación: Promediar a la baja"
+                    tipo = "RECOMPRA MAESTRA 📉🔥"
+                    msg = "Suelo confirmado en 1H, 4H y Diario."
                 elif config.BUSCAR_NUEVAS_ENTRADAS:
-                    tipo = "NUEVA ENTRADA 💎"
-                    msg = f"Oportunidad detectada"
-            
-            # VENTA (Techo: J>100 y D>75)
-            elif j_curr >= 100 and d_curr >= 75:
-                if symbol in config.PORTFOLIO:
-                    tipo = "TOMA DE GANANCIAS 💰"
-                    msg = f"Posible techo de mercado"
+                    tipo = "ENTRADA DE ORO 💎🔥"
+                    msg = "Triple alineación técnica (Suelo Total)."
 
-            # SI HAY SEÑAL, ENVIAR AVISO
+            # CONDICIÓN DE VENTA: Techo en 1H Y Techo en 4H Y Techo en 1D
+            elif (j1 >= 100 and d1 >= 75) and \
+                 (j4 >= 100 and d4 >= 75) and \
+                 (jd >= 100 and dd >= 75):
+                
+                if symbol in config.PORTFOLIO:
+                    tipo = "SALIDA URGENTE 💰🚨"
+                    msg = "Techo confirmado en 1H, 4H y Diario."
+
+            # SI SE CUMPLEN LAS 3, ENVIAR AVISO
             if msg:
                 alerta = (f"🚨 **{tipo}**\n"
                           f"Ticker: {symbol} ({name})\n"
                           f"Precio: ${precio:.2f}\n"
                           f"----------------\n"
-                          f"KDJ -> J:{j_curr:.1f} | D:{d_curr:.1f}\n"
+                          f"📊 **KDJ TRIPLE:**\n"
+                          f"• 1H: J={j1:.0f} | D={d1:.0f}\n"
+                          f"• 4H: J={j4:.0f} | D={d4:.0f}\n"
+                          f"• 1D: J={jd:.0f} | D={dd:.0f}\n"
+                          f"----------------\n"
                           f"💡 {msg}")
+                
                 send_telegram(alerta)
-                print(f"✅ Alerta enviada: {symbol}")
+                print(f"✅ ALERTA TRIPLE ENVIADA: {symbol}")
+                
+                # Activamos el Cooldown de 3 horas para este ticker
                 last_alerts[symbol] = time.time()
-                time.sleep(1) # Pequeña pausa para no saturar si salen muchas juntas
+                time.sleep(1)
 
         except Exception as e:
             continue
 
 # ==========================================
-# 🔔 TAREA SECUNDARIA: SOLO APERTURA/CIERRE
+# 🔔 AVISOS MERCADO
 # ==========================================
 def job_avisos_mercado():
     now = datetime.now(TIMEZONE)
     hora = now.strftime("%H:%M")
     if now.weekday() > 4: return
 
-    # Solo 2 mensajes al día para saber que el bot arrancó o terminó
     if hora == "11:00":
-        send_telegram("🔔 **MERCADO ABIERTO**\nIniciando vigilancia silenciosa.")
+        send_telegram(f"🔔 **MERCADO ABIERTO**\nModo: Triple Confluencia (1H+4H+1D).")
     if hora == "17:00":
         send_telegram("🔕 **MERCADO CERRADO**\nFin de la jornada.")
 
@@ -153,17 +189,13 @@ def job_avisos_mercado():
 # 🚀 MOTOR PRINCIPAL
 # ==========================================
 if __name__ == "__main__":
-    print("🤖 BOT ACCIONES (MODO SILENCIOSO) INICIADO")
-    # Mensaje de inicio (solo al reiniciar el servidor)
-    send_telegram(f"🤖 **BOT ACTIVO**\nModo Silencioso: Solo alertas reales.\nHorario: 11-17hs Arg.")
+    print("🤖 BOT ACCIONES (TRIPLE CONFLUENCIA) INICIADO")
+    send_telegram(f"🤖 **BOT ACTIVO V3**\nEstrategia: Triple Confirmación (1H & 4H & 1D)\nCooldown: 3 Horas.")
     
-    # 1. Escáner cada 3 MINUTOS (Pero solo avisa si encuentra algo)
-    schedule.every(3).minutes.do(job_escanear_oportunidades)
-
-    # 2. Avisos de Apertura/Cierre (Ding Dong)
+    # Escaneo cada 5 minutos
+    schedule.every(5).minutes.do(job_escanear_oportunidades)
     schedule.every(1).minutes.do(job_avisos_mercado)
 
-    # Ejecutar una pasada inicial rápida por si lo prendes en medio del día
     if mercado_abierto():
         job_escanear_oportunidades()
 
