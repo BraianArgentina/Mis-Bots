@@ -66,7 +66,7 @@ def get_last_kdj(df):
     return j.iloc[-1], d.iloc[-1]
 
 # ==========================================
-# 🎯 TAREA PRINCIPAL: ESCÁNER TRIPLE CONFLUENCIA
+# 🎯 TAREA PRINCIPAL: ESCÁNER TRIPLE CONFLUENCIA (ASIMÉTRICO)
 # ==========================================
 last_alerts = {} 
 
@@ -75,7 +75,7 @@ def job_escanear_oportunidades():
     if not mercado_abierto():
         return
 
-    print(f"⚡ Escaneando Triple Confluencia (1H + 4H + 1D)... ({datetime.now(TIMEZONE).strftime('%H:%M')})")
+    print(f"⚡ Escaneando (Compra Estricta / Venta Calibrada)... ({datetime.now(TIMEZONE).strftime('%H:%M')})")
     
     # 2. Preparar lista de activos (Portfolio + Watchlist)
     full_watchlist = {}
@@ -124,11 +124,14 @@ def job_escanear_oportunidades():
 
             precio = df_1h['Close'].iloc[-1]
 
-            # --- LÓGICA DE TRIPLE COINCIDENCIA (AND) ---
+            # --- LÓGICA DE DECISIÓN (ASIMÉTRICA) ---
             msg = ""
             tipo = ""
 
-            # CONDICIÓN DE COMPRA: Suelo en 1H Y Suelo en 4H Y Suelo en 1D
+            # -----------------------------------------------------------
+            # 1. CONDICIÓN DE COMPRA (ESTRICTA) - SIN CAMBIOS
+            # Regla: Todos en suelo (J<=0, D<=25)
+            # -----------------------------------------------------------
             if (j1 <= 0 and d1 <= 25) and \
                (j4 <= 0 and d4 <= 25) and \
                (jd <= 0 and dd <= 25):
@@ -140,22 +143,28 @@ def job_escanear_oportunidades():
                     tipo = "ENTRADA DE ORO 💎🔥"
                     msg = "Triple alineación técnica (Suelo Total)."
 
-            # CONDICIÓN DE VENTA: Techo en 1H Y Techo en 4H Y Techo en 1D
+            # -----------------------------------------------------------
+            # 2. CONDICIÓN DE VENTA (CALIBRADA / CASCADA) - NUEVA LÓGICA V4
+            # Regla ajustada:
+            # 1H: J>=100, D>=75 (Gatillo rápido)
+            # 4H: J>=95,  D>=70 (Confirmación fuerte)
+            # 1D: J>=90,  D>=65 (Contexto de techo)
+            # -----------------------------------------------------------
             elif (j1 >= 100 and d1 >= 75) and \
-                 (j4 >= 100 and d4 >= 75) and \
-                 (jd >= 100 and dd >= 75):
+                 (j4 >= 95  and d4 >= 70) and \
+                 (jd >= 90  and dd >= 65):
                 
                 if symbol in config.PORTFOLIO:
-                    tipo = "SALIDA URGENTE 💰🚨"
-                    msg = "Techo confirmado en 1H, 4H y Diario."
+                    tipo = "TOMA DE GANANCIAS 💰⚡"
+                    msg = "Techo confirmado: 1H(Extremo) + 4H(Alto) + 1D(Zona Alta)."
 
-            # SI SE CUMPLEN LAS 3, ENVIAR AVISO
+            # SI SE CUMPLE ALGUNA, ENVIAR AVISO
             if msg:
                 alerta = (f"🚨 **{tipo}**\n"
                           f"Ticker: {symbol} ({name})\n"
                           f"Precio: ${precio:.2f}\n"
                           f"----------------\n"
-                          f"📊 **KDJ TRIPLE:**\n"
+                          f"📊 **KDJ CASCADA:**\n"
                           f"• 1H: J={j1:.0f} | D={d1:.0f}\n"
                           f"• 4H: J={j4:.0f} | D={d4:.0f}\n"
                           f"• 1D: J={jd:.0f} | D={dd:.0f}\n"
@@ -163,7 +172,7 @@ def job_escanear_oportunidades():
                           f"💡 {msg}")
                 
                 send_telegram(alerta)
-                print(f"✅ ALERTA TRIPLE ENVIADA: {symbol}")
+                print(f"✅ ALERTA ENVIADA: {symbol}")
                 
                 # Activamos el Cooldown de 3 horas para este ticker
                 last_alerts[symbol] = time.time()
@@ -181,7 +190,7 @@ def job_avisos_mercado():
     if now.weekday() > 4: return
 
     if hora == "11:00":
-        send_telegram(f"🔔 **MERCADO ABIERTO**\nModo: Triple Confluencia (1H+4H+1D).")
+        send_telegram(f"🔔 **MERCADO ABIERTO**\nEstrategia: Compra Estricta / Venta Calibrada.")
     if hora == "17:00":
         send_telegram("🔕 **MERCADO CERRADO**\nFin de la jornada.")
 
@@ -189,8 +198,8 @@ def job_avisos_mercado():
 # 🚀 MOTOR PRINCIPAL
 # ==========================================
 if __name__ == "__main__":
-    print("🤖 BOT ACCIONES (TRIPLE CONFLUENCIA) INICIADO")
-    send_telegram(f"🤖 **BOT ACTIVO V3**\nEstrategia: Triple Confirmación (1H & 4H & 1D)\nCooldown: 3 Horas.")
+    print("🤖 BOT ACCIONES (V4 CALIBRADO) INICIADO")
+    send_telegram(f"🤖 **BOT ACTIVO V4**\nEstrategia: Compra Estricta / Venta Calibrada\nCooldown: 3 Horas.")
     
     # Escaneo cada 5 minutos
     schedule.every(5).minutes.do(job_escanear_oportunidades)
