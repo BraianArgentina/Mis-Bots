@@ -150,9 +150,9 @@ def job_escanear_oportunidades():
             # 4H: J>=95,  D>=70 (Confirmación fuerte)
             # 1D: J>=90,  D>=65 (Contexto de techo)
             # -----------------------------------------------------------
-            elif (j1 >= 100 and d1 >= 75) and \
-                 (j4 >= 95  and d4 >= 70) and \
-                 (jd >= 90  and dd >= 65):
+            elif (j1 >= 95 and d1 >= 70) and \
+                 (j4 >= 90  and d4 >= 65) and \
+                 (jd >= 85  and dd >= 60):
                 
                 if symbol in config.PORTFOLIO:
                     tipo = "TOMA DE GANANCIAS 💰⚡"
