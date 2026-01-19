@@ -152,7 +152,7 @@ def job_escanear_oportunidades():
             # -----------------------------------------------------------
             elif (j1 >= 95 and d1 >= 70) and \
                  (j4 >= 90  and d4 >= 65) and \
-                 (jd >= 85  and dd >= 60):
+                 (jd >= 80  and dd >= 60):
                 
                 if symbol in config.PORTFOLIO:
                     tipo = "TOMA DE GANANCIAS 💰⚡"
