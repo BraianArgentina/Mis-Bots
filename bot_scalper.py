@@ -8,20 +8,19 @@ import os
 try:
     from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 except ImportError:
-    print("⚠️ ERROR CRÍTICO: No se encontró 'config.py' o faltan variables.")
+    print("⚠️ ERROR CRÍTICO: No se encontró 'config.py'. Asegúrate de tenerlo en la carpeta.")
     sys.exit()
 
 # --- CONFIGURACIÓN FUTUROS GLOBAL ---
 BASE_URL = "https://fapi.binance.com"
 MIN_VOLUMEN_24H = 30000000  # 30 Millones
-MIN_DIAS_HISTORIA = 100 # Días
-EXCLUDED_SYMBOLS = ['USDCUSDT', 'BUSDUSDT', 'USDPUSDT', 'TUSDUSDT', 'DAIUSDT', 'USDUSDT', 'BNXUSDT', 'FISUSDT']
+EXCLUDED_SYMBOLS = ['USDCUSDT', 'BUSDUSDT', 'USDPUSDT', 'TUSDUSDT', 'DAIUSDT', 'USDUSDT']
 
-# --- FUNCIONES ---
+# --- FUNCIONES DE CONEXIÓN ---
 def get_binance_data(endpoint, params=None):
     try:
         url = BASE_URL + endpoint
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=5) # Timeout corto para velocidad
         return response.json() if response.status_code == 200 else None
     except:
         return None
@@ -37,19 +36,20 @@ def get_liquid_symbols():
         if symbol in EXCLUDED_SYMBOLS or not symbol.endswith('USDT'): continue
         try:
             if float(item['quoteVolume']) >= MIN_VOLUMEN_24H:
-                # Verificación simple de historia para optimizar velocidad
                 liquid_symbols.append(symbol)
         except: continue
             
-    print(f"✅ Lista: {len(liquid_symbols)} monedas líquidas.")
+    print(f"✅ Lista: {len(liquid_symbols)} monedas activas.")
     return liquid_symbols
 
 def get_klines(symbol, interval, limit=50):
     params = {'symbol': symbol, 'interval': interval, 'limit': limit}
     raw = get_binance_data("/fapi/v1/klines", params)
     if not raw: return pd.DataFrame()
+    
+    # Columnas básicas para velocidad
     df = pd.DataFrame(raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'v', 'ct', 'q', 'n', 'V', 'Q', 'i'])
-    return df[['timestamp', 'open', 'high', 'low', 'close']].astype(float)
+    return df[['open', 'high', 'low', 'close']].astype(float)
 
 def send_telegram_alert(message):
     try:
@@ -58,7 +58,7 @@ def send_telegram_alert(message):
         requests.post(url, data=payload, timeout=5)
     except: pass
 
-# --- INDICADORES (KDJ + MACD) ---
+# --- INDICADORES TÉCNICOS ---
 def bcwsma(series, length, weight):
     result = [series[0]]
     for i in range(1, len(series)):
@@ -80,56 +80,115 @@ def calculate_macd(df):
     sig = macd.ewm(span=9).mean()
     return macd, sig
 
-# --- MAIN ---
-def run_bot():
-    print("🚀 SCALPER ACTIVO (FUTUROS GLOBAL)")
-    symbols = get_liquid_symbols()
-    btc_state = 0 
+def calculate_bollinger(df, period=20, std_dev=2):
+    # Usamos la data de 5m para las bandas referenciales
+    sma = df['close'].rolling(period).mean()
+    std = df['close'].rolling(period).std()
+    upper = sma + (std * std_dev)
+    lower = sma - (std * std_dev)
+    return upper, lower
 
+# --- MAIN LOOP ---
+def run_bot():
+    print("🚀 SCALPER ACTIVO (Formato Full)")
+    symbols = get_liquid_symbols()
+    
     while True:
         try:
-            # BTC CHECK
+            # 1. Chequeo BTC (Termómetro del mercado)
             btc_df = get_klines('BTCUSDT', '1h', 2)
             if not btc_df.empty:
                 btc_chg = ((btc_df['close'].iloc[-1] - btc_df['open'].iloc[-1]) / btc_df['open'].iloc[-1]) * 100
-                print(f"⏳ Escaneando... BTC: {btc_chg:.2f}%")
+                print(f"⏳ Escaneando... BTC 1h: {btc_chg:.2f}%")
             else:
                 btc_chg = 0
 
+            # 2. Escaneo de Monedas
             for symbol in symbols:
                 try:
-                    df_1m = get_klines(symbol, '1m')
-                    df_3m = get_klines(symbol, '3m')
-                    df_5m = get_klines(symbol, '5m')
-                    if len(df_5m) < 20: continue
+                    # Obtenemos Dataframes
+                    df_1m = get_klines(symbol, '1m', 35)
+                    df_3m = get_klines(symbol, '3m', 35)
+                    df_5m = get_klines(symbol, '5m', 35)
                     
-                    # LOGICA
-                    _, d1, j1 = calculate_kdj(df_1m)
-                    _, d3, j3 = calculate_kdj(df_3m)
-                    _, d5, j5 = calculate_kdj(df_5m)
+                    # Necesitamos data suficiente
+                    if len(df_5m) < 25: continue
+                    
+                    # Obtenemos cambio 1H de la moneda (para el reporte)
+                    df_1h_coin = get_klines(symbol, '1h', 2)
+                    coin_chg_1h = 0.0
+                    if not df_1h_coin.empty:
+                         coin_chg_1h = ((df_1h_coin['close'].iloc[-1] - df_1h_coin['open'].iloc[-1]) / df_1h_coin['open'].iloc[-1]) * 100
+
+                    # --- CÁLCULOS ---
+                    k1, d1, j1 = calculate_kdj(df_1m)
+                    k3, d3, j3 = calculate_kdj(df_3m)
+                    k5, d5, j5 = calculate_kdj(df_5m)
                     _, sig1 = calculate_macd(df_1m)
                     _, sig3 = calculate_macd(df_3m)
                     _, sig5 = calculate_macd(df_5m)
                     
-                    j1, d1, s1 = j1.iloc[-1], d1.iloc[-1], sig1.iloc[-1]
-                    j3, d3, s3 = j3.iloc[-1], d3.iloc[-1], sig3.iloc[-1]
-                    j5, d5, s5 = j5.iloc[-1], d5.iloc[-1], sig5.iloc[-1]
+                    # Bandas Bollinger (Usamos 5m como referencia visual)
+                    upper_bb, lower_bb = calculate_bollinger(df_5m)
+                    
+                    # Valores actuales (última vela cerrada o actual)
+                    j_val = [j1.iloc[-1], j3.iloc[-1], j5.iloc[-1]]
+                    d_val = [d1.iloc[-1], d3.iloc[-1], d5.iloc[-1]]
+                    s_val = [sig1.iloc[-1], sig3.iloc[-1], sig5.iloc[-1]]
+                    
                     price = df_5m['close'].iloc[-1]
+                    up_band = upper_bb.iloc[-1]
+                    low_band = lower_bb.iloc[-1]
                     
-                    # LONG
-                    if (btc_chg > -1.2 and j1<0 and d1<25 and s1<0 and j3<0 and d3<25 and s3<0 and j5<0 and d5<25 and s5<0):
-                        msg = f"🟢 LONG {symbol}\nPrecio: {price}\nJ: {j1:.1f}|{j3:.1f}|{j5:.1f}"
-                        print(msg)
-                        send_telegram_alert(msg)
-                    
-                    # SHORT
-                    elif (btc_chg < 1.2 and j1>100 and d1>75 and s1>0 and j3>100 and d3>75 and s3>0 and j5>100 and d5>75 and s5>0):
-                        msg = f"🔴 SHORT {symbol}\nPrecio: {price}\nJ: {j1:.1f}|{j3:.1f}|{j5:.1f}"
-                        print(msg)
-                        send_telegram_alert(msg)
+                    signal_type = None
 
-                except: continue
+                    # --- LÓGICA DE ENTRADA ---
+                    # LONG: BTC estable/subiendo + J negativo + D bajo + MACD negativo (sobreventa)
+                    if (btc_chg > -1.2 and 
+                        j_val[0]<0 and d_val[0]<25 and s_val[0]<0 and 
+                        j_val[1]<0 and d_val[1]<25 and s_val[1]<0 and 
+                        j_val[2]<0 and d_val[2]<25 and s_val[2]<0):
+                        signal_type = "LONG"
+                        ref_band = low_band
+                        band_name = "Inf"
+
+                    # SHORT: BTC estable/bajando + J alto + D alto + MACD positivo (sobrecompra)
+                    elif (btc_chg < 1.2 and 
+                          j_val[0]>100 and d_val[0]>75 and s_val[0]>0 and 
+                          j_val[1]>100 and d_val[1]>75 and s_val[1]>0 and 
+                          j_val[2]>100 and d_val[2]>75 and s_val[2]>0):
+                        signal_type = "SHORT"
+                        ref_band = up_band
+                        band_name = "Sup"
+
+                    # --- ENVÍO DE ALERTA ---
+                    if signal_type:
+                        # Calcular distancia a la banda
+                        dist_pct = ((price - ref_band) / ref_band) * 100
+                        state_str = f"ROMPIENDO ({abs(dist_pct):.2f}%)" if (signal_type=="LONG" and price<ref_band) or (signal_type=="SHORT" and price>ref_band) else f"Cercano ({abs(dist_pct):.2f}%)"
+                        
+                        icon = "🟢" if signal_type == "LONG" else "🔴"
+                        
+                        msg = (
+                            f"{icon} {signal_type} {symbol}\n"
+                            f"Precio: {price}\n"
+                            f"Banda {band_name} (5m): {ref_band:.4f}\n"
+                            f"Estado: {state_str}\n"
+                            f"Cambio 1h: {coin_chg_1h:.2f}%\n"
+                            f"----------------\n"
+                            f"J(1,3,5): {j_val[0]:.1f}|{j_val[1]:.1f}|{j_val[2]:.1f}\n"
+                            f"D(1,3,5): {d_val[0]:.1f}|{d_val[1]:.1f}|{d_val[2]:.1f}"
+                        )
+                        print(f"\n{msg}\n")
+                        send_telegram_alert(msg)
+                        time.sleep(2) # Pequeña pausa para no saturar si salen varias juntas
+
+                except Exception as e:
+                    continue
+            
+            # Pausa entre ciclos de escaneo completo
             time.sleep(60)
+
         except KeyboardInterrupt:
             print("\n🛑 Fin.")
             sys.exit()
