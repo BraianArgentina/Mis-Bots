@@ -14,7 +14,8 @@ except ImportError:
 # --- CONFIGURACIÓN FUTUROS GLOBAL ---
 BASE_URL = "https://fapi.binance.com"
 MIN_VOLUMEN_24H = 30000000  # 30 Millones
-EXCLUDED_SYMBOLS = ['USDCUSDT', 'BUSDUSDT', 'USDPUSDT', 'TUSDUSDT', 'DAIUSDT', 'USDUSDT']
+MIN_ANTIGUEDAD_DIAS = 100   # Mínimo 100 días de vida
+EXCLUDED_SYMBOLS = ['USDCUSDT', 'BUSDUSDT', 'USDPUSDT', 'TUSDUSDT', 'DAIUSDT', 'USDUSDT', 'BNXUSDT', 'FISUSDT', 'PAXGUSDT']
 
 # --- FUNCIONES DE CONEXIÓN ---
 def get_binance_data(endpoint, params=None):
@@ -26,20 +27,47 @@ def get_binance_data(endpoint, params=None):
         return None
 
 def get_liquid_symbols():
-    print(f"🔍 Escaneando Mercado (Vol > {MIN_VOLUMEN_24H/1000000}M)...")
-    data = get_binance_data("/fapi/v1/ticker/24hr")
-    if not data: return []
+    print(f"🔍 Escaneando Mercado (Vol > {MIN_VOLUMEN_24H/1000000}M y Edad > {MIN_ANTIGUEDAD_DIAS} días)...")
     
+    # 1. Obtenemos datos de volumen
+    ticker_data = get_binance_data("/fapi/v1/ticker/24hr")
+    # 2. Obtenemos información de la moneda (para saber su fecha de creación)
+    exchange_info = get_binance_data("/fapi/v1/exchangeInfo")
+    
+    if not ticker_data or not exchange_info: 
+        return []
+    
+    # Mapa de fechas de creación {simbolo: fecha_ms}
+    onboard_dates = {item['symbol']: item['onboardDate'] for item in exchange_info['symbols']}
+    
+    # Calcular fecha límite en milisegundos
+    limit_time_ms = (time.time() * 1000) - (MIN_ANTIGUEDAD_DIAS * 24 * 60 * 60 * 1000)
+
     liquid_symbols = []
-    for item in data:
+    
+    for item in ticker_data:
         symbol = item['symbol']
+        
+        # Filtros básicos
         if symbol in EXCLUDED_SYMBOLS or not symbol.endswith('USDT'): continue
+        
         try:
-            if float(item['quoteVolume']) >= MIN_VOLUMEN_24H:
-                liquid_symbols.append(symbol)
+            # 1. Filtro de Volumen
+            if float(item['quoteVolume']) < MIN_VOLUMEN_24H:
+                continue
+
+            # 2. Filtro de Antigüedad (NUEVO)
+            # Si no encontramos la fecha, asumimos que es nueva y la saltamos por seguridad
+            creation_date = onboard_dates.get(symbol, float('inf')) 
+            if creation_date > limit_time_ms:
+                # Si la fecha de creación es MAYOR al límite, significa que es más nueva (nació después)
+                continue 
+
+            liquid_symbols.append(symbol)
+
         except: continue
             
-    print(f"✅ Lista: {len(liquid_symbols)} monedas activas.")
+    print(f"✅ Lista filtrada: {len(liquid_symbols)} monedas aptas.")
     return liquid_symbols
 
 def get_klines(symbol, interval, limit=50):
@@ -90,16 +118,18 @@ def calculate_bollinger(df, period=20, std_dev=2):
 
 # --- MAIN LOOP ---
 def run_bot():
-    print("🚀 SCALPER ACTIVO (Formato Full)")
-    symbols = get_liquid_symbols()
+    print("🚀 SCALPER ACTIVO (V8.0 - Filtro 100 Días)")
     
     while True:
         try:
+            # Actualizamos la lista en cada vuelta grande por si el volumen cambia
+            symbols = get_liquid_symbols()
+
             # 1. Chequeo BTC (Termómetro del mercado)
             btc_df = get_klines('BTCUSDT', '1h', 2)
             if not btc_df.empty:
                 btc_chg = ((btc_df['close'].iloc[-1] - btc_df['open'].iloc[-1]) / btc_df['open'].iloc[-1]) * 100
-                print(f"⏳ Escaneando... BTC 1h: {btc_chg:.2f}%")
+                print(f"⏳ BTC 1h: {btc_chg:.2f}% | Analizando {len(symbols)} monedas...")
             else:
                 btc_chg = 0
 
@@ -118,7 +148,7 @@ def run_bot():
                     df_1h_coin = get_klines(symbol, '1h', 2)
                     coin_chg_1h = 0.0
                     if not df_1h_coin.empty:
-                         coin_chg_1h = ((df_1h_coin['close'].iloc[-1] - df_1h_coin['open'].iloc[-1]) / df_1h_coin['open'].iloc[-1]) * 100
+                          coin_chg_1h = ((df_1h_coin['close'].iloc[-1] - df_1h_coin['open'].iloc[-1]) / df_1h_coin['open'].iloc[-1]) * 100
 
                     # --- CÁLCULOS ---
                     k1, d1, j1 = calculate_kdj(df_1m)
@@ -187,6 +217,7 @@ def run_bot():
                     continue
             
             # Pausa entre ciclos de escaneo completo
+            print("💤 Esperando 60s...")
             time.sleep(60)
 
         except KeyboardInterrupt:
