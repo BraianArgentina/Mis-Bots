@@ -15,14 +15,12 @@ TELEGRAM_CHAT_ID = "-1003461057886"
 # Cuando compres algo nuevo, agrégalo a esta lista.
 # Ahora con formato Diccionario para que puedas moverlas fácilmente.
 PORTFOLIO = {
-    'MELI': 'Mercado Libre',
     'GLOB': 'Globant',
     'META': 'Meta Platforms',
     'NFLX': 'Netflix',
     'MSTR': 'MicroStrategy',
     'JD': 'JD.com',
     'NIO': 'NIO Inc',
-    'STNE': 'StoneCo',
     'TRIP': 'Tripadvisor'
 }
 
@@ -50,7 +48,8 @@ WATCHLIST_DICT = {
     'BMA': 'Banco Macro', 'SUPV': 'Supervielle', 'EDN': 'Edenor', 
     'CRESY': 'Cresud', 'TEO': 'Telecom', 'CEPU': 'Central Puerto', 
     'TGS': 'Gas del Sur', 'BBAR': 'BBVA Francés', 'LOMA': 'Loma Negra',
-    'TX': 'Ternium', 'IRS': 'Irsa', 'DESP': 'Despegar',
+    'TX': 'Ternium', 'IRS': 'Irsa', 'DESP': 'Despegar', 'STNE': 'StoneCo', 
+    'MELI': 'Mercado Libre',
 
     # --- 4. BRASIL, CHINA & EMERGENTES ---
     'PBR': 'Petrobras', 'VALE': 'Vale', 'NU': 'Nubank', 
@@ -71,4 +70,4 @@ WATCHLIST_DICT = {
 # ==========================================
 # True (Verdadero) = Busca NUEVAS oportunidades en los 70 tickers (Escenario A).
 # False (Falso)    = SOLO revisa tu Portfolio para VENTA o RECOMPRA (Escenarios B y C).
-BUSCAR_NUEVAS_ENTRADAS = False
+BUSCAR_NUEVAS_ENTRADAS = True
